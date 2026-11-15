@@ -1,5 +1,5 @@
 // Offline cache for the app files. Bump VERSION when you change any file.
-const VERSION = 'wordscan-v3';
+const VERSION = 'wordscan-v4';
 const FILES = ['./', 'index.html', 'recog.js', 'seeds.js', 'manifest.webmanifest', 'icon-180.png', 'icon-192.png', 'icon-512.png'];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(VERSION).then(c => c.addAll(FILES)).then(() => self.skipWaiting()));

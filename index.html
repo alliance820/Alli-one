@@ -62,6 +62,7 @@ button:focus-visible{outline:3px solid var(--warn);outline-offset:2px}
 .keys button.sug{box-shadow:0 0 0 3px var(--warn)}
 .tbl{display:grid;grid-template-columns:repeat(auto-fill,minmax(62px,1fr));gap:6px;margin-bottom:12px}
 .tbl label{display:flex;align-items:center;gap:4px;font-weight:600}
+.panel select{width:100%;font-size:16px;padding:10px;border-radius:8px;border:0;margin-bottom:4px}
 .tbl input,.panel input[type=number]{width:100%;font-size:16px;padding:6px;border-radius:8px;border:0;text-align:center}
 .note{font-size:13px;color:var(--soft);margin:6px 0 10px}
 .row{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
@@ -95,6 +96,15 @@ button:focus-visible{outline:3px solid var(--warn);outline-offset:2px}
 
 <div class="sheet" id="settings" hidden><div class="panel">
   <h2>Settings</h2>
+  <label class="note" for="common">Word list</label>
+  <select id="common">
+    <option value="10000">Very common words only</option>
+    <option value="20000">Common words</option>
+    <option value="30000">Common + some less common (default)</option>
+    <option value="50000">Most words</option>
+    <option value="0">Everything (full Scrabble-style list)</option>
+  </select>
+  <p class="note">If the game rejects too many words, pick a stricter list. If it misses words the game accepts, pick a bigger one.</p>
   <p class="note">Score = total dots × multiplier for the number of tiles.</p>
   <div class="tbl" id="mults"></div>
   <p class="note">Dots per letter (J and Z are guesses).</p>
@@ -127,9 +137,10 @@ const LS = {
 /* ---------------- scoring config ---------------- */
 const DEF = {
   dots: {A:2,B:3,C:2,D:2,E:1,F:3,G:3,H:3,I:2,J:4,K:4,L:1,M:2,N:1,O:2,P:3,Q:4,R:1,S:1,T:1,U:2,V:4,W:3,X:4,Y:3,Z:4},
-  mults: {3:35,4:50,5:65,6:75,7:85,8:95,9:105,10:115}, minlen: 3
+  mults: {3:35,4:50,5:65,6:75,7:85,8:95,9:105,10:115}, minlen: 3, common: 30000
 };
 let cfg = LS.get('ws-cfg', null) || JSON.parse(JSON.stringify(DEF));
+if (cfg.common === undefined) cfg.common = DEF.common;
 const mult = n => cfg.mults[n] ?? (cfg.mults[10] + (n - 10) * 10);
 const dotsOf = ch => cfg.dots[ch] ?? 0;
 const face = ch => ch === 'Q' ? 'Qu' : ch;
@@ -153,9 +164,13 @@ function learn(ch, feat) {
 }
 
 /* ---------------- dictionary ---------------- */
-let trie = null;
+// Full list: ENABLE (Scrabble-like). Common-word filter: keep only words that also rank in the
+// top N of an English word-frequency list (OpenSubtitles, hermitdave/FrequencyWords).
+let trie = null, dictText = null, freqRank = null;
 const DICT_URLS = ['enable1.txt', 'https://raw.githubusercontent.com/dolph/dictionary/master/enable1.txt'];
-function idb(val) {
+const FREQ_URLS = ['https://raw.githubusercontent.com/hermitdave/FrequencyWords/master/content/2018/en/en_50k.txt',
+                   'https://raw.githubusercontent.com/hermitdave/FrequencyWords/master/content/2016/en/en_50k.txt'];
+function idb(key, val) {
   return new Promise((res, rej) => {
     try {
       const r = indexedDB.open('wordscan', 1);
@@ -163,18 +178,31 @@ function idb(val) {
       r.onerror = rej;
       r.onsuccess = () => {
         const tx = r.result.transaction('k', val ? 'readwrite' : 'readonly'), st = tx.objectStore('k');
-        if (val) { st.put(val, 'dict'); tx.oncomplete = () => res(); }
-        else { const g = st.get('dict'); g.onsuccess = () => res(g.result); g.onerror = rej; }
+        if (val) { st.put(val, key); tx.oncomplete = () => res(); }
+        else { const g = st.get(key); g.onsuccess = () => res(g.result); g.onerror = rej; }
       };
     } catch (e) { rej(e) }
   });
 }
-function buildTrie(text) {
+async function getText(key, urls, minLen) {
+  let t = null;
+  try { t = await idb(key); } catch (e) {}
+  if (t) return t;
+  for (const u of urls) {
+    try { const r = await fetch(u); if (r.ok) { t = await r.text(); if (t.length > minLen) break; t = null; } } catch (e) {}
+  }
+  if (t) idb(key, t).catch(() => {});
+  return t;
+}
+function buildTrie() {
+  if (!dictText) return;
+  const lim = cfg.common || 0, useF = lim && freqRank;
   const root = {}; let n = 0;
-  for (const raw of text.split('\n')) {
+  for (const raw of dictText.split('\n')) {
     const w = raw.trim().toUpperCase();
     if (w.length < 2 || w.length > 17 || !/^[A-Z]+$/.test(w)) continue;
     if (/Q(?!U)/.test(w)) continue;                    // the game only has a Qu tile
+    if (useF) { const r = freqRank.get(w); if (!r || r > lim) continue; }
     let node = root;
     for (let i = 0; i < w.length; i++) { const c = w[i]; node = node[c] || (node[c] = {}); }
     node.$ = 1; n++;
@@ -183,17 +211,15 @@ function buildTrie(text) {
   $('dict').textContent = (n / 1000).toFixed(0) + 'k words';
 }
 async function loadDict() {
-  let t = null;
-  try { t = await idb(); } catch (e) {}
-  if (!t) {
-    for (const u of DICT_URLS) {
-      try { const r = await fetch(u); if (r.ok) { t = await r.text(); if (t.length > 100000) break; t = null; } } catch (e) {}
-    }
-    if (t) idb(t).catch(() => {});
+  const [d, f] = await Promise.all([getText('dict', DICT_URLS, 100000), getText('freq', FREQ_URLS, 100000)]);
+  if (!d) { setStat('Could not load the word list. Check your connection and reopen.'); return; }
+  dictText = d;
+  if (f) {
+    freqRank = new Map(); let i = 0;
+    for (const line of f.split('\n')) { const w = line.split(' ')[0]; if (w) { i++; const W = w.toUpperCase(); if (!freqRank.has(W)) freqRank.set(W, i); } }
   }
-  if (!t) { setStat('Could not load the word list. Check your connection and reopen.'); return; }
-  buildTrie(t);
-  setStat(stream ? 'Fit the board in the box, then Scan.' : 'Tap Start camera.');
+  buildTrie();
+  setStat(!f && cfg.common ? 'Common-word filter unavailable (no connection) — using the full list.' : (stream ? 'Fit the board in the box, then Scan.' : 'Tap Start camera.'));
   if (board.length) solve();
 }
 
@@ -357,16 +383,19 @@ function drawSettings() {
   $('mults').innerHTML = Object.keys(cfg.mults).map(k => `<label>${k}<input type="number" inputmode="numeric" data-m="${k}" value="${cfg.mults[k]}"></label>`).join('');
   $('dots').innerHTML = Object.keys(DEF.dots).map(ch => `<label>${face(ch)}<input type="number" inputmode="numeric" data-d="${ch}" value="${cfg.dots[ch] ?? 0}"></label>`).join('');
   $('minlen').value = cfg.minlen;
+  $('common').value = String(cfg.common);
   const nl = Object.values(learned).reduce((a, b) => a + b.length, 0);
   $('blkInfo').textContent = blocked.size ? `Words you marked “not a word” (${blocked.size}). Tap one to bring it back.` : 'Words you mark “not a word” will be listed here.';
   $('blk').innerHTML = [...blocked].sort().map(w => `<button data-w="${w}">${w} ✕</button>`).join('');
   $('learnInfo').textContent = `Learned from your camera: ${nl} letter sample${nl === 1 ? '' : 's'}.`;
 }
+$('common').addEventListener('change', e => { cfg.common = +e.target.value; LS.set('ws-cfg', cfg); buildTrie(); solve(); });
 $('settings').addEventListener('input', e => {
   const t = e.target, v = +t.value;
   if (t.dataset.m) cfg.mults[t.dataset.m] = v;
   else if (t.dataset.d) cfg.dots[t.dataset.d] = v;
   else if (t.id === 'minlen') cfg.minlen = Math.max(2, v || 3);
+  else if (t.id === 'common') return;
   else return;
   LS.set('ws-cfg', cfg); solve();
 });
