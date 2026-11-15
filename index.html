@@ -44,6 +44,10 @@ svg.path{position:absolute;inset:3%;width:94%;height:94%;pointer-events:none}
 .w .s{font-size:15px;font-weight:600}
 .w.best{border-color:var(--best)}.w.best .v{font-size:clamp(22px,7vw,38px)}
 .w.five{border-color:var(--five)}.w.four{border-color:var(--four)}
+.w .x{min-height:36px;padding:0 12px;margin-top:6px;font-size:13px;font-weight:600;background:rgba(255,255,255,.12)}
+.blk{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.blk button{min-height:36px;font-size:14px;padding:0 12px}
+.status button{min-height:28px;padding:0 10px;font-size:13px;background:var(--best)}
 .bar{display:flex;gap:10px;align-items:center;padding:10px 14px 12px}
 button{font:600 16px -apple-system,system-ui,sans-serif;min-height:48px;padding:0 18px;border-radius:999px;border:0;background:rgba(255,255,255,.14);color:#fff}
 button.main{flex:1;background:var(--best);font-size:19px}
@@ -97,6 +101,8 @@ button:focus-visible{outline:3px solid var(--warn);outline-offset:2px}
   <div class="tbl" id="dots"></div>
   <label class="note" for="minlen">Shortest word (tiles)</label>
   <input type="number" id="minlen" min="2" max="8" inputmode="numeric">
+  <p class="note" id="blkInfo"></p>
+  <div class="blk" id="blk"></div>
   <p class="note" id="learnInfo"></p>
   <div class="row">
     <button id="photoBtn">Scan a screenshot</button>
@@ -202,6 +208,8 @@ for (let i = 0; i < 16; i++) {
   NB.push(a);
 }
 let board = [], feats = [], unsure = [], results = [], picks = {};
+let blocked = new Set(LS.get('ws-blocked', []));
+const saveBlocked = () => LS.set('ws-blocked', [...blocked].sort());
 function solve() {
   results = [];
   if (trie && board.length === 16) {
@@ -212,7 +220,7 @@ function solve() {
       if (!nx) return;
       used[i] = true; path.push(i);
       const w = word + (ch === 'Q' ? 'QU' : ch), d = dots + dotsOf(ch);
-      if (nx.$ && path.length >= cfg.minlen && !found.has(w))
+      if (nx.$ && path.length >= cfg.minlen && !found.has(w) && !blocked.has(w))
         found.set(w, { w, path: path.slice(), n: path.length, score: d * mult(path.length) });
       for (const j of NB[i]) if (!used[j]) dfs(j, nx, w, d);
       used[i] = false; path.pop();
@@ -220,9 +228,7 @@ function solve() {
     for (let i = 0; i < 16; i++) if (/[A-Z]/.test(board[i])) dfs(i, trie, '', 0);
     results = [...found.values()].sort((a, b) => b.score - a.score || b.n - a.n);
   }
-  const best = results[0];
-  const rnd = n => { const pool = results.filter(r => r.n === n && r !== best); return pool[Math.floor(Math.random() * pool.length)] || null; };
-  picks = { best, five: rnd(5), four: rnd(4) };
+  picks = { best: results[0] || null, second: results[1] || null };
   render();
 }
 
@@ -240,15 +246,26 @@ function render() {
   }).join('');
   const pt = (i, o) => [(i & 3) * 100 + 50 + ((i & 3) - 1.5) * 3 + o, (i >> 2) * 100 + 50 + ((i >> 2) - 1.5) * 3 + o];
   const line = (r, col, o, wdt) => r ? `<polyline points="${r.path.map(i => pt(i, o).join(',')).join(' ')}" fill="none" stroke="${col}" stroke-width="${wdt}" stroke-linecap="round" stroke-linejoin="round" opacity=".8"/><circle cx="${pt(r.path[0], o)[0]}" cy="${pt(r.path[0], o)[1]}" r="${wdt + 3}" fill="${col}"/>` : '';
-  $('svg').innerHTML = line(picks.four, 'var(--four)', 12, 6) + line(picks.five, 'var(--five)', -12, 6) + line(picks.best, 'var(--best)', 0, 8);
-  const card = (cls, label, r) => `<div class="w ${cls}"><div class="k">${label}</div>${r ? `<div class="v">${r.w}</div><div class="s">${r.score.toLocaleString()}</div>` : '<div class="k">none on this board</div>'}</div>`;
+  $('svg').innerHTML = line(picks.second, 'var(--five)', -10, 6) + line(picks.best, 'var(--best)', 0, 8);
+  const card = (cls, label, r) => `<div class="w ${cls}"><div class="k">${label}</div>${r ? `<div class="v">${r.w}</div><div class="s">${r.score.toLocaleString()}</div><button class="x" data-w="${r.w}">Not a word</button>` : '<div class="k">none on this board</div>'}</div>`;
   $('words').innerHTML = board.length && trie
-    ? card('best', 'Best word', picks.best) + card('five', 'Random 5-letter', picks.five) + card('four', 'Random 4-letter', picks.four)
+    ? card('best', 'Best word', picks.best) + card('five', '2nd best', picks.second)
     : `<p class="note">${trie ? 'Scan a board to see words.' : 'Loading words…'}</p>`;
   const nU = unsure.filter(Boolean).length;
   $('ok').hidden = !nU;
 }
 function setStat(t) { $('stat').innerHTML = t; }
+
+$('words').onclick = e => {
+  const b = e.target.closest('button.x'); if (!b) return;
+  const w = b.dataset.w; blocked.add(w); saveBlocked(); solve();
+  setStat(`Removed ${w}. <button id="undo">Undo</button>`);
+  $('undo').onclick = () => { blocked.delete(w); saveBlocked(); solve(); setStat(`${w} is back.`); };
+};
+$('blk').onclick = e => {
+  const b = e.target.closest('button'); if (!b) return;
+  blocked.delete(b.dataset.w); saveBlocked(); drawSettings(); solve();
+};
 
 /* ---------------- camera ---------------- */
 let stream = null, autoOn = LS.get('ws-auto', true), timer = null, lastSig = '', stableSig = '', pickerOpen = false;
@@ -341,6 +358,8 @@ function drawSettings() {
   $('dots').innerHTML = Object.keys(DEF.dots).map(ch => `<label>${face(ch)}<input type="number" inputmode="numeric" data-d="${ch}" value="${cfg.dots[ch] ?? 0}"></label>`).join('');
   $('minlen').value = cfg.minlen;
   const nl = Object.values(learned).reduce((a, b) => a + b.length, 0);
+  $('blkInfo').textContent = blocked.size ? `Words you marked “not a word” (${blocked.size}). Tap one to bring it back.` : 'Words you mark “not a word” will be listed here.';
+  $('blk').innerHTML = [...blocked].sort().map(w => `<button data-w="${w}">${w} ✕</button>`).join('');
   $('learnInfo').textContent = `Learned from your camera: ${nl} letter sample${nl === 1 ? '' : 's'}.`;
 }
 $('settings').addEventListener('input', e => {
