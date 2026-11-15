@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Word Scan">
+<meta name="theme-color" content="#0f2440">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<title>Word Scan</title>
+<style>
+:root{--bg:#0f2440;--bg2:#183a63;--ink:#fff;--soft:#9fb8d8;--tile:#dcd9cf;--tile2:#bdb9aa;
+  --best:#e2483d;--five:#3d8bff;--four:#2fbf71;--warn:#ffb020}
+*{box-sizing:border-box;min-width:0;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:16px/1.4 -apple-system,system-ui,sans-serif;overflow:hidden;-webkit-user-select:none;user-select:none}
+.app{display:flex;flex-direction:column;height:100%;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
+.cam{position:relative;flex:0 0 38%;background:#000;overflow:hidden}
+.cam video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.guide{position:absolute;border:3px solid rgba(255,255,255,.85);border-radius:14px;box-shadow:0 0 0 2000px rgba(0,0,0,.35);pointer-events:none;transition:border-color .2s}
+.guide.found{border-color:var(--four)}
+.start{position:absolute;inset:0;display:grid;place-items:center;text-align:center;padding:20px}
+.status{font-size:14px;color:var(--soft);padding:6px 14px;min-height:28px;display:flex;justify-content:space-between;gap:8px}
+.status b{color:var(--warn);font-weight:600}
+.res{flex:1;display:grid;grid-template-columns:minmax(0,58%) minmax(0,1fr);gap:12px;padding:4px 14px;align-items:start;overflow:auto}
+.board{position:relative;aspect-ratio:1;background:#1d3d63;border-radius:12px;padding:3%}
+.grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4%;height:100%}
+.grid.top{position:absolute;inset:3%;height:auto;pointer-events:none}
+.grid.top .t{background:none;box-shadow:none}
+.t{position:relative;border-radius:16%;background:linear-gradient(#e6e3da 0 45%,var(--tile2));display:flex;align-items:center;justify-content:center;color:#111;font-weight:700;font-size:clamp(16px,5.5vw,30px);line-height:1}
+.t.on{background:linear-gradient(#ffe3df 0 45%,#f2a49b)}
+.t.unsure{box-shadow:0 0 0 3px var(--warn)}
+.t.q{background:rgba(255,255,255,.15)}
+.grid.top .t{color:#111}
+.t b{position:absolute;top:1px;left:2px;font-size:10px;background:var(--best);color:#fff;border-radius:99px;min-width:15px;height:15px;display:grid;place-items:center}
+svg.path{position:absolute;inset:3%;width:94%;height:94%;pointer-events:none}
+.words{display:flex;flex-direction:column;gap:10px}
+.w{border-left:5px solid;padding:2px 0 2px 10px}
+.w .k{font-size:12px;color:var(--soft)}
+.w .v{font-size:clamp(18px,5.5vw,30px);font-weight:800;letter-spacing:.03em;line-height:1.1;overflow-wrap:anywhere}
+.w .s{font-size:15px;font-weight:600}
+.w.best{border-color:var(--best)}.w.best .v{font-size:clamp(22px,7vw,38px)}
+.w.five{border-color:var(--five)}.w.four{border-color:var(--four)}
+.bar{display:flex;gap:10px;align-items:center;padding:10px 14px 12px}
+button{font:600 16px -apple-system,system-ui,sans-serif;min-height:48px;padding:0 18px;border-radius:999px;border:0;background:rgba(255,255,255,.14);color:#fff}
+button.main{flex:1;background:var(--best);font-size:19px}
+button.on{background:var(--four)}
+button:focus-visible{outline:3px solid var(--warn);outline-offset:2px}
+.sheet{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:flex-end;z-index:5}
+.sheet[hidden]{display:none}
+.panel{background:var(--bg2);width:100%;max-height:85%;overflow:auto;border-radius:18px 18px 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom))}
+.panel h2{margin:0 0 10px;font-size:18px}
+.keys{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px}
+.keys button{padding:0;font-size:20px;min-height:50px;border-radius:10px;background:var(--tile);color:#111}
+.keys button.sug{box-shadow:0 0 0 3px var(--warn)}
+.tbl{display:grid;grid-template-columns:repeat(auto-fill,minmax(62px,1fr));gap:6px;margin-bottom:12px}
+.tbl label{display:flex;align-items:center;gap:4px;font-weight:600}
+.tbl input,.panel input[type=number]{width:100%;font-size:16px;padding:6px;border-radius:8px;border:0;text-align:center}
+.note{font-size:13px;color:var(--soft);margin:6px 0 10px}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="cam" id="cam">
+    <video id="video" playsinline muted autoplay></video>
+    <div class="guide" id="guide"></div>
+    <div class="start" id="start"><div><p>Point this phone at the game board.<br>Fit the tiles inside the box.</p><button class="main" id="go">Start camera</button></div></div>
+  </div>
+  <div class="status"><span id="stat">Loading word list…</span><span id="dict"></span></div>
+  <div class="res">
+    <div class="board" id="boardBox"><div class="grid" id="grid"></div><svg class="path" id="svg" viewBox="0 0 400 400"></svg><div class="grid top" id="tops"></div></div>
+    <div class="words" id="words"></div>
+  </div>
+  <div class="bar">
+    <button class="main" id="scan">Scan</button>
+    <button id="auto" aria-pressed="false">Auto</button>
+    <button id="ok" hidden>✓ All right</button>
+    <button id="gear" aria-label="Settings">⚙︎</button>
+  </div>
+</div>
+
+<div class="sheet" id="picker" hidden><div class="panel">
+  <h2 id="pickTitle">Which letter is this?</h2>
+  <div class="keys" id="keys"></div>
+  <div class="row"><button id="pickCancel">Cancel</button></div>
+</div></div>
+
+<div class="sheet" id="settings" hidden><div class="panel">
+  <h2>Settings</h2>
+  <p class="note">Score = total dots × multiplier for the number of tiles.</p>
+  <div class="tbl" id="mults"></div>
+  <p class="note">Dots per letter (J and Z are guesses).</p>
+  <div class="tbl" id="dots"></div>
+  <label class="note" for="minlen">Shortest word (tiles)</label>
+  <input type="number" id="minlen" min="2" max="8" inputmode="numeric">
+  <p class="note" id="learnInfo"></p>
+  <div class="row">
+    <button id="photoBtn">Scan a screenshot</button>
+    <button id="forget">Forget learned letters</button>
+    <button id="resetCfg">Reset scoring</button>
+  </div>
+  <input type="file" id="photo" accept="image/*" hidden>
+  <div class="row"><button class="main" id="close">Done</button></div>
+</div></div>
+
+<canvas id="cv" width="480" height="480" hidden></canvas>
+<script src="recog.js"></script>
+<script src="seeds.js"></script>
+<script>
+{
+const $ = id => document.getElementById(id);
+const LS = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d } catch (e) { return d } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)) } catch (e) {} }
+};
+
+/* ---------------- scoring config ---------------- */
+const DEF = {
+  dots: {A:2,B:3,C:2,D:2,E:1,F:3,G:3,H:3,I:2,J:4,K:4,L:1,M:2,N:1,O:2,P:3,Q:4,R:1,S:1,T:1,U:2,V:4,W:3,X:4,Y:3,Z:4},
+  mults: {3:35,4:50,5:65,6:75,7:85,8:95,9:105,10:115}, minlen: 3
+};
+let cfg = LS.get('ws-cfg', null) || JSON.parse(JSON.stringify(DEF));
+const mult = n => cfg.mults[n] ?? (cfg.mults[10] + (n - 10) * 10);
+const dotsOf = ch => cfg.dots[ch] ?? 0;
+const face = ch => ch === 'Q' ? 'Qu' : ch;
+
+/* ---------------- letter samples ---------------- */
+const dec = s => { const [f, ar] = s.split('|'); return { f: Array.from(f, c => +c / 9), ar: +ar } };
+const enc = f => f.f.map(v => Math.round(v * 9)).join('') + '|' + f.ar;
+let learned = LS.get('ws-learned', {});            // {A:[enc,...]}
+let samples;
+function buildSamples() {
+  samples = {};
+  for (const L in window.SEEDS) samples[L] = window.SEEDS[L].map(dec);
+  for (const L in learned) (samples[L] = samples[L] || []).push(...learned[L].map(dec));
+}
+buildSamples();
+function learn(ch, feat) {
+  if (!feat || !/^[A-Z]$/.test(ch)) return;
+  const arr = learned[ch] = learned[ch] || [];
+  arr.push(enc(feat)); if (arr.length > 10) arr.shift();
+  LS.set('ws-learned', learned); buildSamples();
+}
+
+/* ---------------- dictionary ---------------- */
+let trie = null;
+const DICT_URLS = ['enable1.txt', 'https://raw.githubusercontent.com/dolph/dictionary/master/enable1.txt'];
+function idb(val) {
+  return new Promise((res, rej) => {
+    try {
+      const r = indexedDB.open('wordscan', 1);
+      r.onupgradeneeded = () => r.result.createObjectStore('k');
+      r.onerror = rej;
+      r.onsuccess = () => {
+        const tx = r.result.transaction('k', val ? 'readwrite' : 'readonly'), st = tx.objectStore('k');
+        if (val) { st.put(val, 'dict'); tx.oncomplete = () => res(); }
+        else { const g = st.get('dict'); g.onsuccess = () => res(g.result); g.onerror = rej; }
+      };
+    } catch (e) { rej(e) }
+  });
+}
+function buildTrie(text) {
+  const root = {}; let n = 0;
+  for (const raw of text.split('\n')) {
+    const w = raw.trim().toUpperCase();
+    if (w.length < 2 || w.length > 17 || !/^[A-Z]+$/.test(w)) continue;
+    if (/Q(?!U)/.test(w)) continue;                    // the game only has a Qu tile
+    let node = root;
+    for (let i = 0; i < w.length; i++) { const c = w[i]; node = node[c] || (node[c] = {}); }
+    node.$ = 1; n++;
+  }
+  trie = root;
+  $('dict').textContent = (n / 1000).toFixed(0) + 'k words';
+}
+async function loadDict() {
+  let t = null;
+  try { t = await idb(); } catch (e) {}
+  if (!t) {
+    for (const u of DICT_URLS) {
+      try { const r = await fetch(u); if (r.ok) { t = await r.text(); if (t.length > 100000) break; t = null; } } catch (e) {}
+    }
+    if (t) idb(t).catch(() => {});
+  }
+  if (!t) { setStat('Could not load the word list. Check your connection and reopen.'); return; }
+  buildTrie(t);
+  setStat(stream ? 'Fit the board in the box, then Scan.' : 'Tap Start camera.');
+  if (board.length) solve();
+}
+
+/* ---------------- solver ---------------- */
+const NB = [];
+for (let i = 0; i < 16; i++) {
+  const r = i >> 2, c = i & 3, a = [];
+  for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) {
+    const rr = r + dr, cc = c + dc;
+    if ((dr || dc) && rr >= 0 && rr < 4 && cc >= 0 && cc < 4) a.push(rr * 4 + cc);
+  }
+  NB.push(a);
+}
+let board = [], feats = [], unsure = [], results = [], picks = {};
+function solve() {
+  results = [];
+  if (trie && board.length === 16) {
+    const found = new Map(), used = new Array(16).fill(false), path = [];
+    const dfs = (i, node, word, dots) => {
+      const ch = board[i]; let nx = node[ch];
+      if (ch === 'Q') nx = nx && nx.U;
+      if (!nx) return;
+      used[i] = true; path.push(i);
+      const w = word + (ch === 'Q' ? 'QU' : ch), d = dots + dotsOf(ch);
+      if (nx.$ && path.length >= cfg.minlen && !found.has(w))
+        found.set(w, { w, path: path.slice(), n: path.length, score: d * mult(path.length) });
+      for (const j of NB[i]) if (!used[j]) dfs(j, nx, w, d);
+      used[i] = false; path.pop();
+    };
+    for (let i = 0; i < 16; i++) if (/[A-Z]/.test(board[i])) dfs(i, trie, '', 0);
+    results = [...found.values()].sort((a, b) => b.score - a.score || b.n - a.n);
+  }
+  const best = results[0];
+  const rnd = n => { const pool = results.filter(r => r.n === n && r !== best); return pool[Math.floor(Math.random() * pool.length)] || null; };
+  picks = { best, five: rnd(5), four: rnd(4) };
+  render();
+}
+
+/* ---------------- drawing ---------------- */
+function render() {
+  const bp = picks.best ? picks.best.path : [];
+  const cells = board.length ? board : new Array(16).fill('');
+  $('grid').innerHTML = cells.map((ch, i) => {
+    const k = bp.indexOf(i), q = board.length && !/[A-Z]/.test(ch);
+    return `<div class="t${k >= 0 ? ' on' : ''}${unsure[i] ? ' unsure' : ''}${q ? ' q' : ''}" data-i="${i}"></div>`;
+  }).join('');
+  $('tops').innerHTML = cells.map((ch, i) => {
+    const k = bp.indexOf(i), q = !/[A-Z]/.test(ch);
+    return `<div class="t">${k >= 0 ? `<b>${k + 1}</b>` : ''}${q ? (board.length ? '?' : '') : face(ch)}</div>`;
+  }).join('');
+  const pt = (i, o) => [(i & 3) * 100 + 50 + ((i & 3) - 1.5) * 3 + o, (i >> 2) * 100 + 50 + ((i >> 2) - 1.5) * 3 + o];
+  const line = (r, col, o, wdt) => r ? `<polyline points="${r.path.map(i => pt(i, o).join(',')).join(' ')}" fill="none" stroke="${col}" stroke-width="${wdt}" stroke-linecap="round" stroke-linejoin="round" opacity=".8"/><circle cx="${pt(r.path[0], o)[0]}" cy="${pt(r.path[0], o)[1]}" r="${wdt + 3}" fill="${col}"/>` : '';
+  $('svg').innerHTML = line(picks.four, 'var(--four)', 12, 6) + line(picks.five, 'var(--five)', -12, 6) + line(picks.best, 'var(--best)', 0, 8);
+  const card = (cls, label, r) => `<div class="w ${cls}"><div class="k">${label}</div>${r ? `<div class="v">${r.w}</div><div class="s">${r.score.toLocaleString()}</div>` : '<div class="k">none on this board</div>'}</div>`;
+  $('words').innerHTML = board.length && trie
+    ? card('best', 'Best word', picks.best) + card('five', 'Random 5-letter', picks.five) + card('four', 'Random 4-letter', picks.four)
+    : `<p class="note">${trie ? 'Scan a board to see words.' : 'Loading words…'}</p>`;
+  const nU = unsure.filter(Boolean).length;
+  $('ok').hidden = !nU;
+}
+function setStat(t) { $('stat').innerHTML = t; }
+
+/* ---------------- camera ---------------- */
+let stream = null, autoOn = LS.get('ws-auto', true), timer = null, lastSig = '', stableSig = '', pickerOpen = false;
+const video = $('video'), cv = $('cv'), cx = cv.getContext('2d', { willReadFrequently: true });
+function placeGuide() {
+  const r = $('cam').getBoundingClientRect(), s = Math.min(r.width, r.height) * 0.9;
+  Object.assign($('guide').style, { width: s + 'px', height: s + 'px', left: (r.width - s) / 2 + 'px', top: (r.height - s) / 2 + 'px' });
+  return { r, s };
+}
+addEventListener('resize', placeGuide); placeGuide();
+async function startCam() {
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } } });
+    video.srcObject = stream; await video.play();
+    $('start').hidden = true;
+    setStat(trie ? 'Fit the board in the box, then Scan.' : 'Loading word list…');
+    setAuto(autoOn);
+  } catch (e) {
+    setStat('<b>Camera blocked.</b> Allow camera for this site in Settings → Safari → Camera.');
+  }
+}
+$('go').onclick = startCam;
+function grabFrame() {
+  const vw = video.videoWidth, vh = video.videoHeight;
+  if (!vw) return null;
+  const { r, s } = placeGuide();
+  const sc = Math.max(r.width / vw, r.height / vh), ox = (r.width - vw * sc) / 2, oy = (r.height - vh * sc) / 2;
+  const m = s * 0.06;                                   // a little margin around the box
+  const gx = (r.width - s) / 2 - m, gy = (r.height - s) / 2 - m, gs = s + 2 * m;
+  cx.drawImage(video, (gx - ox) / sc, (gy - oy) / sc, gs / sc, gs / sc, 0, 0, 480, 480);
+  return cx.getImageData(0, 0, 480, 480);
+}
+function readImage(img, fromAuto) {
+  const R = Recog.recognizeBoard(img.data, img.width, img.height);
+  $('guide').classList.toggle('found', R.ok);
+  if (!R.ok) { if (!fromAuto) setStat('<b>Board not found.</b> Fit all 16 tiles inside the box, a bit closer.'); return; }
+  const cls = R.feats.map(f => Recog.classify(f, samples));
+  const sig = cls.map(c => c.ch).join('');
+  if (fromAuto) {                                       // only update once two frames agree
+    if (sig !== lastSig) { lastSig = sig; return; }
+    if (sig === stableSig) return;
+  }
+  stableSig = lastSig = sig;
+  board = cls.map(c => c.ch); feats = R.feats;
+  unsure = cls.map(c => c.ch === '?' || c.d > 40 || c.conf < 0.15);
+  const nU = unsure.filter(Boolean).length;
+  setStat(nU ? `<b>${nU} tile${nU > 1 ? 's' : ''} unsure</b> — tap to fix, or ✓ if right` : 'Board read. Tap any tile to fix it.');
+  solve();
+}
+$('scan').onclick = () => {
+  if (!stream) return startCam();
+  const img = grabFrame(); if (img) { stableSig = ''; readImage(img, false); }
+};
+function setAuto(on) {
+  autoOn = on; LS.set('ws-auto', on);
+  $('auto').classList.toggle('on', on); $('auto').setAttribute('aria-pressed', on);
+  clearInterval(timer);
+  if (on && stream) timer = setInterval(() => { if (!pickerOpen && !document.hidden) { const img = grabFrame(); if (img) readImage(img, true); } }, 350);
+}
+$('auto').onclick = () => setAuto(!autoOn);
+$('auto').classList.toggle('on', autoOn);
+
+/* ---------------- fixing letters ---------------- */
+let pickIdx = -1;
+$('keys').innerHTML = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').map(c => `<button data-c="${c}">${face(c)}</button>`).join('');
+$('grid').onclick = e => {
+  const t = e.target.closest('.t'); if (!t || !board.length) return;
+  pickIdx = +t.dataset.i; pickerOpen = true;
+  $('pickTitle').textContent = `Tile ${Math.floor(pickIdx / 4) + 1}-${pickIdx % 4 + 1}: which letter?`;
+  [...$('keys').children].forEach(b => b.classList.toggle('sug', b.dataset.c === board[pickIdx]));
+  $('picker').hidden = false;
+};
+$('keys').onclick = e => {
+  const b = e.target.closest('button'); if (!b) return;
+  board[pickIdx] = b.dataset.c; learn(b.dataset.c, feats[pickIdx]); unsure[pickIdx] = false;
+  stableSig = lastSig = board.join('');
+  closePicker(); solve();
+};
+const closePicker = () => { $('picker').hidden = true; pickerOpen = false; };
+$('pickCancel').onclick = closePicker;
+$('picker').onclick = e => { if (e.target === $('picker')) closePicker(); };
+$('ok').onclick = () => {
+  unsure.forEach((u, i) => { if (u) learn(board[i], feats[i]); });
+  unsure = unsure.map(() => false); setStat('Saved. It will recognise those next time.'); render();
+};
+
+/* ---------------- settings ---------------- */
+function drawSettings() {
+  $('mults').innerHTML = Object.keys(cfg.mults).map(k => `<label>${k}<input type="number" inputmode="numeric" data-m="${k}" value="${cfg.mults[k]}"></label>`).join('');
+  $('dots').innerHTML = Object.keys(DEF.dots).map(ch => `<label>${face(ch)}<input type="number" inputmode="numeric" data-d="${ch}" value="${cfg.dots[ch] ?? 0}"></label>`).join('');
+  $('minlen').value = cfg.minlen;
+  const nl = Object.values(learned).reduce((a, b) => a + b.length, 0);
+  $('learnInfo').textContent = `Learned from your camera: ${nl} letter sample${nl === 1 ? '' : 's'}.`;
+}
+$('settings').addEventListener('input', e => {
+  const t = e.target, v = +t.value;
+  if (t.dataset.m) cfg.mults[t.dataset.m] = v;
+  else if (t.dataset.d) cfg.dots[t.dataset.d] = v;
+  else if (t.id === 'minlen') cfg.minlen = Math.max(2, v || 3);
+  else return;
+  LS.set('ws-cfg', cfg); solve();
+});
+$('gear').onclick = () => { drawSettings(); $('settings').hidden = false; pickerOpen = true; };
+$('close').onclick = () => { $('settings').hidden = true; pickerOpen = false; };
+$('resetCfg').onclick = () => { cfg = JSON.parse(JSON.stringify(DEF)); LS.set('ws-cfg', cfg); drawSettings(); solve(); };
+let forgetArmed = false;
+$('forget').onclick = () => {
+  if (!forgetArmed) { forgetArmed = true; $('forget').textContent = 'Tap again to confirm'; return; }
+  forgetArmed = false; $('forget').textContent = 'Forget learned letters';
+  learned = {}; LS.set('ws-learned', learned); buildSamples(); drawSettings();
+};
+$('photoBtn').onclick = () => $('photo').click();
+$('photo').onchange = e => {
+  const f = e.target.files[0]; if (!f) return;
+  const im = new Image();
+  im.onload = () => {
+    const s = Math.min(1, 900 / Math.max(im.width, im.height)), w = Math.round(im.width * s), h = Math.round(im.height * s);
+    const c = document.createElement('canvas'); c.width = w; c.height = h;
+    const g = c.getContext('2d'); g.drawImage(im, 0, 0, w, h);
+    $('settings').hidden = true; pickerOpen = false; stableSig = '';
+    readImage(g.getImageData(0, 0, w, h), false);
+    URL.revokeObjectURL(im.src);
+  };
+  im.src = URL.createObjectURL(f); e.target.value = '';
+};
+
+render();
+loadDict();
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+</script>
+</body>
+</html>
