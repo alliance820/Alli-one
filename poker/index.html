@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Poker Scan">
+<meta name="theme-color" content="#0e2a1c">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<title>Poker Scan</title>
+<style>
+:root{--bg:#0e2a1c;--bg2:#17402b;--ink:#fff;--soft:#a9cdb8;--card:#efe9dd;--red:#b8261b;--blk:#1c2438;--path:#e2483d;--warn:#ffb020;--ok:#2fbf71}
+*{box-sizing:border-box;min-width:0;-webkit-tap-highlight-color:transparent}
+[hidden]{display:none!important}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:16px/1.4 -apple-system,system-ui,sans-serif;overflow:hidden;-webkit-user-select:none;user-select:none}
+.app{display:flex;flex-direction:column;height:100%;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
+.cam{position:relative;flex:0 0 44%;background:#000;overflow:hidden}
+.cam video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.guide{position:absolute;border:3px solid rgba(255,255,255,.85);border-radius:14px;box-shadow:0 0 0 2000px rgba(0,0,0,.35);pointer-events:none;transition:border-color .2s}
+.guide.found{border-color:var(--ok)}
+.start{position:absolute;inset:0;display:grid;place-items:center;text-align:center;padding:20px}
+.status{font-size:14px;color:var(--soft);padding:6px 14px;min-height:28px}
+.status b{color:var(--warn);font-weight:600}
+.res{flex:1;display:grid;grid-template-columns:minmax(0,52%) minmax(0,1fr);gap:12px;padding:4px 14px;align-items:start;overflow:auto}
+.board{position:relative;aspect-ratio:.72;background:#123a26;border-radius:12px;padding:3%}
+.grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));grid-template-rows:repeat(4,minmax(0,1fr));gap:3.5%;height:100%}
+.c{position:relative;border-radius:10%;background:var(--card);display:flex;flex-direction:column;align-items:center;justify-content:center;font-weight:800;line-height:1;font-size:clamp(13px,4.4vw,24px)}
+.c.r{color:var(--red)}.c.k{color:var(--blk)}
+.c i{font-style:normal;font-size:1.05em}
+.c.on{background:#ffe0da}
+.c.unsure{box-shadow:0 0 0 3px var(--warn)}
+.c.q{background:rgba(255,255,255,.15);color:#fff}
+.c b{position:absolute;top:2px;left:3px;font-size:10px;background:var(--path);color:#fff;border-radius:99px;min-width:15px;height:15px;display:grid;place-items:center}
+svg.path{position:absolute;inset:3%;width:94%;height:94%;pointer-events:none}
+.hand .k{font-size:12px;color:var(--soft)}
+.hand .v{font-size:clamp(24px,8vw,40px);font-weight:800;line-height:1.05;margin:2px 0 8px}
+.hand .cards{display:flex;flex-wrap:wrap;gap:6px}
+.hand .cards span{background:var(--card);border-radius:6px;padding:4px 6px;font-weight:800;font-size:17px}
+.bar{display:flex;gap:10px;align-items:center;padding:10px 14px 12px}
+button{font:600 16px -apple-system,system-ui,sans-serif;min-height:48px;padding:0 18px;border-radius:999px;border:0;background:rgba(255,255,255,.14);color:#fff}
+button.main{flex:1;background:var(--path);font-size:19px}
+button.on{background:var(--ok)}
+button:focus-visible{outline:3px solid var(--warn);outline-offset:2px}
+.sheet{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:flex-end;z-index:5}
+.panel{background:var(--bg2);width:100%;max-height:85%;overflow:auto;border-radius:18px 18px 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom))}
+.panel h2{margin:0 0 10px;font-size:18px}
+.keys{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px;margin-bottom:12px}
+.keys.s{grid-template-columns:repeat(4,minmax(0,1fr))}
+.keys button{padding:0;font-size:20px;min-height:50px;border-radius:10px;background:var(--card);color:var(--blk)}
+.keys button.red{color:var(--red)}
+.keys button.sel{box-shadow:0 0 0 3px var(--warn)}
+.note{font-size:13px;color:var(--soft);margin:6px 0 10px}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="cam" id="cam">
+    <video id="video" playsinline muted autoplay></video>
+    <div class="guide" id="guide"></div>
+    <div class="start" id="start"><div><p>Point this phone at the cards.<br>Fit all 16 inside the box.</p><button class="main" id="go">Start camera</button></div></div>
+  </div>
+  <div class="status" id="stat">Tap Start camera.</div>
+  <div class="res">
+    <div class="board"><div class="grid" id="grid"></div><svg class="path" id="svg" viewBox="0 0 400 400" preserveAspectRatio="none"></svg></div>
+    <div class="hand" id="hand"><p class="note">Scan the cards to see the best hand.</p></div>
+  </div>
+  <div class="bar">
+    <button class="main" id="scan">Scan</button>
+    <button id="auto">Auto</button>
+    <button id="ok" hidden>✓ All right</button>
+    <button id="gear" aria-label="Settings">⚙︎</button>
+  </div>
+</div>
+
+<div class="sheet" id="picker" hidden><div class="panel">
+  <h2 id="pickTitle">Which card is this?</h2>
+  <div class="keys" id="rkeys"></div>
+  <div class="keys s" id="skeys"></div>
+  <div class="row"><button class="main" id="pickSave">Save</button><button id="pickCancel">Cancel</button></div>
+</div></div>
+
+<div class="sheet" id="settings" hidden><div class="panel">
+  <h2>Settings</h2>
+  <p class="note" id="learnInfo"></p>
+  <div class="row">
+    <button id="photoBtn">Scan a screenshot</button>
+    <button id="forget">Forget learned cards</button>
+  </div>
+  <p class="note">Best hand = the highest-ranking hand made of 5 touching cards (diagonals count). An ace is high or low in straights.</p>
+  <input type="file" id="photo" accept="image/*" hidden>
+  <div class="row"><button class="main" id="close">Done</button></div>
+</div></div>
+
+<canvas id="cv" width="720" height="1035" hidden></canvas>
+<script src="card-recog.js"></script>
+<script src="card-seeds.js"></script>
+<script>
+{
+const $ = id => document.getElementById(id);
+const LS = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d } catch (e) { return d } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)) } catch (e) {} }
+};
+const RANKS = ['A','2','3','4','5','6','7','8','9','T','J','Q','K'];
+const SUITS = ['S','H','D','C'];
+const SYM = { S: '♠', H: '♥', D: '♦', C: '♣' };
+const show = r => r === 'T' ? '10' : r;
+const VAL = { A: 14, K: 13, Q: 12, J: 11, T: 10 };
+const val = r => VAL[r] || +r;
+
+/* ---------------- card samples ---------------- */
+const dec = s => { if (!s) return null; const [f, ar] = s.split('|'); return { f: Array.from(f, c => +c / 9), ar: +ar } };
+const enc = f => f ? f.f.map(v => Math.round(v * 9)).join('') + '|' + f.ar : '';
+let learned = LS.get('pk-learned', { rank: {}, suit: {} });
+let samples;
+function buildSamples() {
+  samples = { rank: {}, suit: {} };
+  const addR = (k, s) => { const [a, b] = s.split('~'); (samples.rank[k] = samples.rank[k] || []).push({ rank: dec(a), mid: dec(b) }); };
+  const addS = (k, s) => (samples.suit[k] = samples.suit[k] || []).push(dec(s));
+  for (const k in CARD_SEEDS.rank) CARD_SEEDS.rank[k].forEach(s => addR(k, s));
+  for (const k in CARD_SEEDS.suit) CARD_SEEDS.suit[k].forEach(s => addS(k, s));
+  for (const k in learned.rank) learned.rank[k].forEach(s => addR(k, s));
+  for (const k in learned.suit) learned.suit[k].forEach(s => addS(k, s));
+}
+buildSamples();
+function learn(card, feat) {
+  if (!feat || !card || card.length !== 2) return;
+  const [r, s] = card;
+  if (feat.rank) { const a = learned.rank[r] = learned.rank[r] || []; a.push(enc(feat.rank) + '~' + enc(feat.mid)); if (a.length > 10) a.shift(); }
+  if (feat.suit) { const a = learned.suit[s] = learned.suit[s] || []; a.push(enc(feat.suit)); if (a.length > 10) a.shift(); }
+  LS.set('pk-learned', learned); buildSamples();
+}
+
+/* ---------------- solver: best 5-card path ---------------- */
+const NB = [];
+for (let i = 0; i < 16; i++) {
+  const r = i >> 2, c = i & 3, a = [];
+  for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) {
+    const rr = r + dr, cc = c + dc;
+    if ((dr || dc) && rr >= 0 && rr < 4 && cc >= 0 && cc < 4) a.push(rr * 4 + cc);
+  }
+  NB.push(a);
+}
+const NAMES = ['High card', 'Pair', 'Two pair', 'Three of a kind', 'Straight', 'Flush', 'Full house', 'Four of a kind', 'Straight flush', 'Royal flush'];
+function rankHand(cs) {
+  const v = cs.map(c => val(c[0])).sort((a, b) => a - b), s = cs.map(c => c[1]);
+  const flush = s.every(x => x === s[0]);
+  const uniq = new Set(v).size === 5;
+  const wheel = v.join() === '2,3,4,5,14';
+  const straight = uniq && (v[4] - v[0] === 4 || wheel);
+  const cnt = {}; v.forEach(x => cnt[x] = (cnt[x] || 0) + 1);
+  const g = Object.values(cnt).sort((a, b) => b - a).join('');
+  if (straight && flush) return v[0] === 10 ? 9 : 8;
+  if (g === '41') return 7;
+  if (g === '32') return 6;
+  if (flush) return 5;
+  if (straight) return 4;
+  if (g === '311') return 3;
+  if (g === '221') return 2;
+  if (g === '2111') return 1;
+  return 0;
+}
+let board = [], feats = [], unsure = [], best = null;
+function solve() {
+  best = null;
+  if (board.length === 16) {
+    const used = new Array(16).fill(false), path = [];
+    const dfs = i => {
+      if (best && best.cat === 9) return;
+      used[i] = true; path.push(i);
+      if (path.length === 5) {
+        const cat = rankHand(path.map(j => board[j]));
+        if (!best || cat > best.cat) best = { cat, path: path.slice() };
+      } else for (const j of NB[i]) if (!used[j] && board[j].length === 2) dfs(j);
+      used[i] = false; path.pop();
+    };
+    for (let i = 0; i < 16; i++) if (board[i].length === 2) dfs(i);
+  }
+  render();
+}
+
+/* ---------------- drawing ---------------- */
+function render() {
+  const bp = best ? best.path : [];
+  const cells = board.length ? board : new Array(16).fill('');
+  $('grid').innerHTML = cells.map((c, i) => {
+    const k = bp.indexOf(i), q = board.length && c.length !== 2, red = c[1] === 'H' || c[1] === 'D';
+    return `<div class="c ${red ? 'r' : 'k'}${k >= 0 ? ' on' : ''}${unsure[i] ? ' unsure' : ''}${q ? ' q' : ''}" data-i="${i}">${k >= 0 ? `<b>${k + 1}</b>` : ''}${q ? '?' : c ? show(c[0]) + `<i>${SYM[c[1]]}</i>` : ''}</div>`;
+  }).join('');
+  const pt = i => [(i & 3) * 100 + 50 + ((i & 3) - 1.5) * 4, (i >> 2) * 100 + 50 + ((i >> 2) - 1.5) * 4];
+  $('svg').innerHTML = bp.length ? `<polyline points="${bp.map(i => pt(i).join(',')).join(' ')}" fill="none" stroke="#e2483d" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" opacity=".7"/><circle cx="${pt(bp[0])[0]}" cy="${pt(bp[0])[1]}" r="12" fill="#e2483d"/>` : '';
+  $('hand').innerHTML = best
+    ? `<div class="k">Best hand</div><div class="v">${NAMES[best.cat]}</div><div class="cards">${bp.map(i => { const c = board[i], red = c[1] === 'H' || c[1] === 'D'; return `<span style="color:var(${red ? '--red' : '--blk'})">${show(c[0])}${SYM[c[1]]}</span>`; }).join('')}</div><p class="note">Swipe the cards in the numbered order.</p>`
+    : `<p class="note">${board.length ? 'Fix the unknown cards to see the best hand.' : 'Scan the cards to see the best hand.'}</p>`;
+  $('ok').hidden = !unsure.some(Boolean);
+}
+const setStat = t => $('stat').innerHTML = t;
+
+/* ---------------- camera ---------------- */
+const ASPECT = 0.69;                                    // board width / height
+let stream = null, autoOn = LS.get('pk-auto', true), timer = null, lastSig = '', stableSig = '', busy = false;
+const video = $('video'), cv = $('cv'), cx = cv.getContext('2d', { willReadFrequently: true });
+function placeGuide() {
+  const r = $('cam').getBoundingClientRect();
+  let h = r.height * 0.92, w = h * ASPECT;
+  if (w > r.width * 0.92) { w = r.width * 0.92; h = w / ASPECT; }
+  Object.assign($('guide').style, { width: w + 'px', height: h + 'px', left: (r.width - w) / 2 + 'px', top: (r.height - h) / 2 + 'px' });
+  return { r, w, h };
+}
+addEventListener('resize', placeGuide); placeGuide();
+async function startCam() {
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } } });
+    video.srcObject = stream; await video.play();
+    $('start').hidden = true; setStat('Fit all 16 cards in the box.');
+    setAuto(autoOn);
+  } catch (e) { setStat('<b>Camera blocked.</b> Allow camera for this site in Settings → Safari → Camera.'); }
+}
+$('go').onclick = startCam;
+function grabFrame() {
+  const vw = video.videoWidth, vh = video.videoHeight; if (!vw) return null;
+  const { r, w, h } = placeGuide();
+  const sc = Math.max(r.width / vw, r.height / vh), ox = (r.width - vw * sc) / 2, oy = (r.height - vh * sc) / 2;
+  const mw = w * 0.05, mh = h * 0.05, gx = (r.width - w) / 2 - mw, gy = (r.height - h) / 2 - mh;
+  cx.drawImage(video, (gx - ox) / sc, (gy - oy) / sc, (w + 2 * mw) / sc, (h + 2 * mh) / sc, 0, 0, 720, 1035);
+  return cx.getImageData(0, 0, 720, 1035);
+}
+function readImage(img, fromAuto) {
+  const R = CardRecog.recognizeBoard(img.data, img.width, img.height);
+  $('guide').classList.toggle('found', R.ok);
+  if (!R.ok) { if (!fromAuto) setStat('<b>Cards not found.</b> Fit all 16 cards inside the box.'); return; }
+  const cls = R.feats.map(f => CardRecog.classify(f, samples));
+  const sig = cls.map(c => c.rank + c.suit).join(',');
+  if (fromAuto) { if (sig !== lastSig) { lastSig = sig; return; } if (sig === stableSig) return; }
+  stableSig = lastSig = sig;
+  board = cls.map(c => (c.rank === '?' || c.suit === '?') ? '?' : c.rank + c.suit); feats = R.feats;
+  unsure = cls.map(c => c.rank === '?' || c.suit === '?' || c.rk.d > 22 || c.st.d > 15 || c.rk.conf < 0.12 || c.st.conf < 0.12);
+  const nU = unsure.filter(Boolean).length;
+  setStat(nU ? `<b>${nU} card${nU > 1 ? 's' : ''} unsure</b> — tap to fix, or ✓ if right` : 'Cards read. Tap any card to fix it.');
+  solve();
+}
+$('scan').onclick = () => { if (!stream) return startCam(); const img = grabFrame(); if (img) { stableSig = ''; readImage(img, false); } };
+function setAuto(on) {
+  autoOn = on; LS.set('pk-auto', on); $('auto').classList.toggle('on', on);
+  clearInterval(timer);
+  if (on && stream) timer = setInterval(() => { if (!busy && !document.hidden) { const img = grabFrame(); if (img) readImage(img, true); } }, 350);
+}
+$('auto').onclick = () => setAuto(!autoOn);
+$('auto').classList.toggle('on', autoOn);
+
+/* ---------------- fixing cards ---------------- */
+let pickIdx = -1, pr = '', ps = '';
+$('rkeys').innerHTML = RANKS.map(r => `<button data-r="${r}">${show(r)}</button>`).join('');
+$('skeys').innerHTML = SUITS.map(s => `<button data-s="${s}" class="${s === 'H' || s === 'D' ? 'red' : ''}">${SYM[s]}</button>`).join('');
+const mark = () => {
+  [...$('rkeys').children].forEach(b => b.classList.toggle('sel', b.dataset.r === pr));
+  [...$('skeys').children].forEach(b => b.classList.toggle('sel', b.dataset.s === ps));
+};
+$('grid').onclick = e => {
+  const t = e.target.closest('.c'); if (!t || !board.length) return;
+  pickIdx = +t.dataset.i; const c = board[pickIdx]; pr = c.length === 2 ? c[0] : ''; ps = c.length === 2 ? c[1] : '';
+  $('pickTitle').textContent = `Card in row ${Math.floor(pickIdx / 4) + 1}, column ${pickIdx % 4 + 1}`;
+  mark(); busy = true; $('picker').hidden = false;
+};
+$('rkeys').onclick = e => { const b = e.target.closest('button'); if (b) { pr = b.dataset.r; mark(); } };
+$('skeys').onclick = e => { const b = e.target.closest('button'); if (b) { ps = b.dataset.s; mark(); } };
+const closePicker = () => { $('picker').hidden = true; busy = false; };
+$('pickSave').onclick = () => {
+  if (!pr || !ps) return;
+  board[pickIdx] = pr + ps; learn(board[pickIdx], feats[pickIdx]); unsure[pickIdx] = false;
+  stableSig = lastSig = '';
+  closePicker(); solve();
+};
+$('pickCancel').onclick = closePicker;
+$('picker').onclick = e => { if (e.target === $('picker')) closePicker(); };
+$('ok').onclick = () => {
+  unsure.forEach((u, i) => { if (u && board[i].length === 2) learn(board[i], feats[i]); });
+  unsure = unsure.map(() => false); setStat('Saved. It will recognise those next time.'); render();
+};
+
+/* ---------------- settings ---------------- */
+function drawSettings() {
+  const n = Object.values(learned.rank).reduce((a, b) => a + b.length, 0);
+  $('learnInfo').textContent = `Learned from your camera: ${n} card sample${n === 1 ? '' : 's'}.`;
+}
+$('gear').onclick = () => { drawSettings(); busy = true; $('settings').hidden = false; };
+$('close').onclick = () => { $('settings').hidden = true; busy = false; };
+let armed = false;
+$('forget').onclick = () => {
+  if (!armed) { armed = true; $('forget').textContent = 'Tap again to confirm'; return; }
+  armed = false; $('forget').textContent = 'Forget learned cards';
+  learned = { rank: {}, suit: {} }; LS.set('pk-learned', learned); buildSamples(); drawSettings();
+};
+$('photoBtn').onclick = () => $('photo').click();
+$('photo').onchange = e => {
+  const f = e.target.files[0]; if (!f) return;
+  const im = new Image();
+  im.onload = () => {
+    const s = Math.min(1, 1100 / Math.max(im.width, im.height)), w = Math.round(im.width * s), h = Math.round(im.height * s);
+    const c = document.createElement('canvas'); c.width = w; c.height = h;
+    const g = c.getContext('2d'); g.drawImage(im, 0, 0, w, h);
+    $('settings').hidden = true; busy = false; stableSig = '';
+    readImage(g.getImageData(0, 0, w, h), false);
+    URL.revokeObjectURL(im.src);
+  };
+  im.src = URL.createObjectURL(f); e.target.value = '';
+};
+
+render();
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('../sw.js').catch(() => {});
+}
+</script>
+</body>
+</html>
